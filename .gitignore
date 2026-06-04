@@ -1,0 +1,5 @@
+.pnpm-store/
+audit/
+.env
+.env.*
+!.env.example
