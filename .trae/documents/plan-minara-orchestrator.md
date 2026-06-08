@@ -24,11 +24,12 @@
 
 ## Assumptions & Decisions
 
-- 合规假设：100 个“账户”均为你自有或客户明确授权管理；不会尝试通过多账号随机调度去规避平台机制或刷取奖励。
-- 接入方式：优先使用 Minara 官方 Agent API（API Key 模式）。如果你希望走 x402（按次付费）再单独扩展。
+- 合规假设：100 个“账户”均为你自有；不会尝试通过多账号随机调度去规避平台机制或刷取奖励。
+- 接入方式：使用 Minara 官方 Agent API（API Key 模式）。
 - 账号规模：支持 100 个账号的“批量调度”，但默认并发/速率严格受控，避免触发平台限流或异常行为检测。
 - 成本优先：不引入数据库依赖（如 Postgres）；运行状态与账号密钥采用“本地加密文件 + 本地 state 文件”方案，VPS 单机即可跑。
-- pm2 托管：仅托管 1 个 Node 进程（内部再做并发控制）。需要水平扩展时再考虑 pm2 cluster 或多实例分片。
+- 调度目标：你当前不确定 Sparks 的具体获取路径，且暂不做交易；因此第一阶段交付“通用随机调度框架 + 可插拔任务系统”，默认只跑低成本的 API 健康任务与可用性巡检。后续一旦你决定通过订阅或真实交易来累积 Sparks，再按插件方式加任务。
+- pm2 托管：采用单机单进程（1 个 pm2 app），内部做并发控制与速率限制。
 
 ## Proposed Changes
 
@@ -45,7 +46,7 @@
 
 ### 2) 新项目结构（单包 TypeScript 服务）
 
-在仓库根目录创建（或 `apps/minara-orchestrator/`，二选一，默认放根目录以便部署简单）：
+在仓库根目录创建（放根目录以便 VPS 低成本部署与 pm2 托管；不引入 monorepo/workspaces）：
 
 - `package.json`
   - scripts：`build`、`start`、`dev`、`lint`（如需要）、`typecheck`
@@ -75,6 +76,22 @@
 - `.gitignore`
   - 忽略 `.env*`、`accounts*.json`、`state/`、`logs/` 等敏感或运行期文件
 
+### 2.1) 服务对外接口（最小但可运维）
+
+- `GET /healthz`
+  - 返回 `{ status: "ok" }`
+- `GET /v1/status`
+  - 返回调度器摘要（不含敏感字段）：总账号数、启用数、最近 1h 成功/失败数、熔断数、队列长度、全局并发占用等
+- `POST /v1/reload`
+  - 重新加载账号文件与配置（需要一个 `ADMIN_TOKEN`；通过 header 传入）
+
+### 2.2) 成本/行为边界
+
+- 第一阶段不实现任何“自动交易”或“自动化参与社区活动”的行为，只做：
+  - API Key 可用性巡检
+  - 限流友好的随机调度框架（为第二阶段扩展做准备）
+- Sparks 的累积路径由 Minara 官方规则决定（交易/订阅/活动/推荐）；本项目不会尝试规避规则。
+
 ### 3) 账号与密钥管理（最低成本但安全）
 
 目标：能配置 100 个账号，同时不把任何密钥提交到 git。
@@ -100,8 +117,7 @@ API Key 模式：
 - Base URL：`https://api-developer.minara.ai`
 - 端点（最小集合）：
   - `POST /v1/developer/chat`：用于“轻量查询任务”（可选 `mode=fast`，并关闭 stream 以降低实现复杂度）
-  - 若你明确需要“生成可执行交易意图”，再加：
-    - `POST /v1/developer/intent-to-swap-tx`（文档显示存在该端点，但需要你确认具体 payload 与链/资产范围）
+  - 预留扩展位（第二阶段才做）：`POST /v1/developer/intent-to-swap-tx`（用于生成可执行交易意图；是否启用取决于你后续是否要做真实交易任务）
 
 通用能力：
 
@@ -126,7 +142,7 @@ API Key 模式：
 
 任务本身：
 
-- 提供 `TASK=minara_chat_ping`：对每个账号发一个固定的低成本 prompt（例如“输出当前 BTC 价格与关键支撑位”），验证账号可用性与调度系统稳定性
+- 提供 `TASK=minara_chat_ping`：对账号发固定、低复杂度 prompt（例如“输出当前 BTC 价格与关键支撑位”），用于验证账号可用性、API Key 有效性、以及调度稳定性。该任务消耗的是 Minara Credits（而非直接发放 Sparks）；Sparks 的累积仍以官方定义的订阅/交易/活动为准。
 - 其它任务通过“插件式”扩展，不把业务逻辑写死到调度器
 
 ### 6) pm2 托管与部署形态
@@ -161,3 +177,68 @@ VPS 侧（有真实 key）：
 - 再逐步扩大到 100（例如每小时增加 10 个启用账号）
 - 全程确保密钥文件不进仓库：`.gitignore` + 运维侧单独分发
 
+## Implementation Steps (Executor Checklist)
+
+> 该段用于实现阶段直接照做，确保不会误删 `.github/workflows/**`。
+
+### Step 0: 保护区确认
+
+- 确认仓库存在 `.github/workflows/**`；若不存在，停止清理动作并先从远端更新到包含该目录的 commit。
+- 在任何删除动作里把 `.github/workflows/**` 加入排除列表（只读保留区）。
+
+### Step 1: 删除旧项目（保留 workflows）
+
+- 删除 `arbitrage-scanner/` 及旧的根目录部署文件（例如旧的 `ecosystem.config.cjs`、旧的 `.env.example`、旧的 `.nvmrc` 等）
+- 保留：
+  - `.github/workflows/**`
+  - `.trae/documents/plan-minara-orchestrator.md`（可选保留；若你希望仓库更干净，合并后也可删除）
+
+### Step 2: 初始化新 Node/TS 项目
+
+- 新增根目录 `package.json`、`tsconfig.json`、`src/**`、`.gitignore`、`.env.example`、`ecosystem.config.cjs`
+- Node 版本约束：
+  - `.nvmrc` 写死 `v20.20.2`
+  - `package.json.engines.node` 为 `>=20.20.2`
+
+### Step 3: 接入 Minara Agent API（API Key）
+
+- 实现 `MinaraClient`：
+  - `Authorization: Bearer <API_KEY>`
+  - `POST https://api-developer.minara.ai/v1/developer/chat`
+  - `mode` 默认 `fast`，`stream=false`
+  - 请求超时、重试与 429 退避
+
+### Step 4: 账号文件与加密
+
+- 账号文件 schema（JSON array）：
+  - `id: string`
+  - `apiKey: string`
+  - `enabled: boolean`
+  - `tags?: string[]`
+- 可选加密模式：
+  - `ACCOUNTS_FILE_ENCRYPTED=1` 时，用 `ACCOUNTS_MASTER_KEY` 解密
+  - 提供一个离线命令 `pnpm run accounts:encrypt`（读取明文 JSON 输出加密文件；不把明文写进仓库）
+
+### Step 5: 调度器（随机 + 限流 + 熔断）
+
+- 全局并发：`GLOBAL_CONCURRENCY`（默认 3）
+- 单账号冷却：`ACCOUNT_COOLDOWN_MS`（默认 10 分钟）
+- 抖动：`JITTER_MS`（默认 0~60s）
+- 熔断：连续失败 N 次进入冷却窗口（如 5~30 分钟，指数增长）
+- 成本上限：可选 `DAILY_BUDGET_REQUESTS`，超过则当天暂停任务执行
+
+### Step 6: HTTP 管理面 + pm2
+
+- 实现 `/healthz`、`/v1/status`、`/v1/reload`
+- pm2：
+  - `pm2 start ecosystem.config.cjs`
+  - `pm2 save` + `pm2 startup`（部署文档写清楚）
+
+### Step 7: 测试与验收
+
+- 单测：scheduler（并发/冷却/熔断/jitter）、env 校验、加密解密
+- 集成测试：用本地 mock server 模拟 Minara API（不使用真实 key）
+- 验收：
+  - 100 账号加载成功（enabled 可控）
+  - 运行 30 分钟无明显 429 风暴；出现 429 能自动退避且不重试风暴
+  - 日志无明文 apiKey 泄露
