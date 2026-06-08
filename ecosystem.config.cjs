@@ -1,9 +1,9 @@
 module.exports = {
   apps: [
     {
-      name: "quantooor-api",
+      name: "minara-orchestrator",
       cwd: __dirname,
-      script: "arbitrage-scanner/artifacts/api-server/dist/index.mjs",
+      script: "dist/index.js",
       interpreter: "node",
       node_args: "--enable-source-maps",
       env: {
@@ -12,3 +12,4 @@ module.exports = {
     },
   ],
 };
+

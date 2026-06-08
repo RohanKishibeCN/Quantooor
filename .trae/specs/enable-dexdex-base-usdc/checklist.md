@@ -1,9 +1,0 @@
-- [x] 仅 DEX-DEX 模式启动后，不会启动 CEX ingestion / Gate / CoinGecko top token 扫描等非目标任务
-- [x] Pool Registry 能在 Base 上发现并维护 TOKEN/USDC（USDC 计价）Uniswap V2/V3 候选池，且按 tokenAddress 归一化去重
-- [x] Quote Engine 对 Uniswap V2 池能返回 USDC→TOKEN 与 TOKEN→USDC 的 exact-in 报价（含 BigInt/定点数，避免精度溢出）
-- [x] Quote Engine 对 Uniswap V3 池能通过 Quoter 返回 exact-in 报价，且输出字段与 V2 一致
-- [x] Opportunity Engine 能输出同一 tokenAddress 的跨 DEX 闭环机会（A 买 B 卖 / B 买 A 卖），并正确扣除费用与 gasUsd
-- [x] `GET /api/v1/dexdex/opportunities` 返回字段包含：chain、tokenAddress、buyPool、sellPool、amountIn、amountOut、netProfitUsd、priceImpact、liquidity
-- [x] WebSocket 推送包含 `dexdex_opportunities_update`，Dashboard 能实时刷新展示
-- [x] Dashboard 能展示 Base/USDC DEX-DEX 机会列表，并支持最小筛选（minNetProfitUsd/limit 或 UI 等价能力）
-- [x] 单元测试覆盖：V2 报价公式与机会计算；关键逻辑变更有可回归验证方式
