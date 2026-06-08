@@ -70,11 +70,11 @@ jobs:
 
       - name: Configure OCR
         run: |
-          ocr config set llm.url ${{ secrets.OCR_LLM_URL }}
-          ocr config set llm.auth_token ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          ocr config set llm.model ${{ secrets.OCR_LLM_MODEL }}
-          ocr config set llm.use_anthropic "${OCR_LLM_USE_ANTHROPIC:-false}"
-          ocr config set llm.extra_body '{"thinking": {"type": "disabled"}}'
+          ocr config set llm.url "$OCR_LLM_URL"
+          ocr config set llm.auth_token "$OCR_LLM_AUTH_TOKEN"
+          ocr config set llm.model "$OCR_LLM_MODEL"
+          ocr config set llm.use_anthropic "false"
+          ocr config set language "Chinese"
 
       - name: Run OpenCodeReview
         id: review
