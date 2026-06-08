@@ -1,5 +1,10 @@
-.pnpm-store/
-audit/
 .env
 .env.*
-!.env.example
+accounts.json
+accounts.enc
+state/
+logs/
+node_modules/
+dist/
+.pnpm-store/
+
