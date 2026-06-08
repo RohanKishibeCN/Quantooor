@@ -80,7 +80,6 @@ jobs:
           ocr config set llm.url "$OCR_LLM_URL"
           ocr config set llm.auth_token "$OCR_LLM_AUTH_TOKEN"
           ocr config set llm.model "$OCR_LLM_MODEL"
-          ocr config set language "Chinese"
 
       - name: Run OpenCodeReview
         id: review
