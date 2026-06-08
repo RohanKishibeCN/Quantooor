@@ -22,6 +22,61 @@
   - API Key 的 Developer Chat 端点示例：`POST https://api-developer.minara.ai/v1/developer/chat`（官方说明：API Reference (API Key) 页面包含该端点）
   - x402 付费方式存在，但实现支付挑战流会显著增加工程复杂度；除非明确要走 x402，否则默认先支持 API Key
 
+## Sparks 规则（官方口径）
+
+以下为文档中明确写到的 Sparks 获取方式与要点（用于在方案中“合规落地”）：
+
+- 获取 Sparks 的方式（官方说明：What are Sparks?）https://minara.ai/docs/support/faq/subscription-and-credits/sparks
+  - 在 Minara 上交易（Trading on Minara）
+  - 订阅 Minara（Subscribing to Minara）
+  - 参与官方社区活动（Participating in Minara community campaigns）
+  - 推荐邀请（Referrals：来自被邀请者的交易与首次订阅）
+- Sparks 与 Credits 不同：Credits 用于 AI 计算/工作流中带 Minara AI Query 的节点消耗；Sparks 更像奖励点数，可用于解锁权益（官方说明同上）
+- 推荐奖励规则（官方说明：Referral rewards）https://minara.ai/docs/support/faq/subscription-and-credits/referral-rewards
+  - 邀请人奖励与 tier（invite 数量）有关；奖励在“被邀请者首次购买付费计划”时触发，并按比例获得被邀请者从该付费计划获得的 Sparks
+  - “自邀请/批量小号互刷”可能触发平台风控或违反条款；本方案仅把它作为官方存在的渠道说明，不会设计规避规则的刷法
+
+## 低成本获取 Sparks 的推荐路径（直观描述 + 成本计算）
+
+结论：在“你暂不做交易、且希望工程最简单”的前提下，最低运维复杂度、最可控的路径是“订阅拿 Bonus Sparks”；但它的现金成本是线性的（账号数越多成本越高）。如果你追求更低现金成本，则需要走“真实交易换 Sparks”，但由于官方未公开“每笔交易→多少 Sparks”的换算细则，必须先做小规模试跑测算，再决定是否扩大到 100 账号。
+
+### 路径 A：订阅获得 Bonus Sparks（推荐作为第一阶段的“低风险/低复杂度”方案）
+
+- 获取机制：订阅计划会包含固定 Credits + 每月 Bonus Sparks（官方说明：How is the plan priced? 提到每个 plan 含 Credits + Bonus Sparks）https://minara.ai/docs/support/faq/subscription-and-credits/how-is-the-plan-priced
+- 具体操作路径（人工为主，自动化不介入支付）：
+  - 每个账号登录 Minara → 选择最低档可用订阅 → 维持订阅
+  - 调度器仅做 API Key 健康巡检与“是否可用”的状态监控（避免因为 key 被暂停/过期而无人发现）
+- 成本如何算（直观公式）：
+  - 设单账号月费为 `P`（你在产品内看到的 Lite/Starter/Pro 的月费）
+  - 设该档位每账号每月 Bonus Sparks 为 `S_sub`
+  - 账号数为 `N`（最多 100）
+  - 月总成本：`Cost_month = N * P`
+  - 月总 Sparks（仅订阅来源）：`Sparks_month = N * S_sub`
+  - 单位 Sparks 成本：`Cost_per_spark = Cost_month / Sparks_month = P / S_sub`（与账号数无关，关键看你选的档位）
+- 为什么低成本/低复杂度：
+  - 不涉及交易风控、不承担行情风险
+  - 工程上只需少量 API 调用做健康检查（不追求通过 API “刷” Sparks）
+
+### 路径 B：真实交易获得 Sparks（现金成本可能更低，但不确定性更高）
+
+- 获取机制：文档明确“Trading on Minara”可以获得 Sparks（官方说明：What are Sparks?）https://minara.ai/docs/support/faq/subscription-and-credits/sparks
+- 关键不确定性：官方未在文档公开“交易量/交易次数→Sparks”的定量关系，因此无法在不试跑的前提下给出精确成本。
+- 推荐的“低成本验证路径”（先测算，再扩张）：
+  - 先选 `N_pilot=3~5` 个账号，设置极低频率、极小交易额（只做你可承受风险的真实交易）
+  - 运行 3~7 天，记录：
+    - 每账号实际产生的交易成本（手续费 + 滑点 + gas，若有）
+    - Sparks 余额变化 `ΔSparks`
+  - 得到估算值：`Cost_per_spark_est ~= (TotalFees + TotalSlippage + TotalGas) / ΔSparks`
+  - 如果该估算显著低于订阅的 `P / S_sub`，再考虑扩到 100 账号
+- 与本项目的关系（第二阶段扩展）：
+  - 第一阶段先交付“随机调度框架 + 限流熔断 + 账号管理”
+  - 你确认要用交易拿 Sparks 后，再在任务系统里新增“交易任务插件”（并加入严格风控、交易频率限制、日预算封顶）
+
+### 路径 C：社区 Campaign（通常最低现金成本，但最高人工成本，且不适合纯 API 自动化）
+
+- 获取机制：参与官方社区活动可以获得 Sparks（官方说明：What are Sparks?）https://minara.ai/docs/support/faq/subscription-and-credits/sparks
+- 现实约束：活动往往需要站内/社交行为，不适合做成稳定的 API 自动化；本项目默认不覆盖该路径
+
 ## Assumptions & Decisions
 
 - 合规假设：100 个“账户”均为你自有；不会尝试通过多账号随机调度去规避平台机制或刷取奖励。
