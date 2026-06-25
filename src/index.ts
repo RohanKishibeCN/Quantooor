@@ -1,99 +1,81 @@
-import "./config/dotenv.js";
-import { loadRuntimeConfig } from "./config/runtime.js";
-import { loadAccounts } from "./accounts/store.js";
-import { MinaraClient } from "./minara/client.js";
-import { createHttpServer } from "./server/http.js";
-import { Scheduler } from "./scheduler/scheduler.js";
-import { loadState, saveState } from "./scheduler/state.js";
+import { loadConfig } from './config/index.js'
+import type { SystemState } from './core/types.js'
+import { TrueNorthClient } from './truenorth/client.js'
+import { createExchange } from './exchange/factory.js'
+import { SignalEngine } from './engine/signal-engine.js'
+import { Scheduler } from './engine/scheduler.js'
+import { NotionReporter } from './notion/reporter.js'
+import { ExecMode, getExecMode } from './engine/executor.js'
 
-const config = loadRuntimeConfig();
+const CYCLE_INTERVAL_MS = 10000
 
-const minara = new MinaraClient();
-const statePath = "./state/state.json";
+async function main(): Promise<void> {
+  console.log(`
+  ╔══════════════════════════════════╗
+  ║   Trueno Quant MVP v1.0          ║
+  ║   TrueNorth · OKX/Binance · Notion║
+  ╚══════════════════════════════════╝
+  `)
 
-let accounts = await loadAccounts({
-  accountsFile: config.accountsFile,
-  encrypted: config.accountsFileEncrypted,
-  masterKey: config.accountsMasterKey,
-});
+  const config = loadConfig()
+  const mode = getExecMode(config)
 
-let state = await loadState(statePath);
+  const state: SystemState = {
+    startTime: Date.now(),
+    lastReportTime: 0,
+    lastSignalTime: 0,
+    lastAnomalyTime: 0,
+    lastFundingTime: 0,
+    signals: [],
+    anomalies: [],
+    fundingSnapshots: [],
+    lastTnAnalysis: null,
+    lastTnAnalysisTime: 0,
+    openOrders: [],
+    tradeHistory: [],
+    dailyPnl: 0,
+    totalPnl: 0,
+    isPaused: false,
+    pauseReason: '',
+  }
 
-const scheduler = new Scheduler({
-  config,
-  minara,
-  accounts,
-  state,
-  statePath,
-});
+  const tn = new TrueNorthClient(config)
+  const exchange = await createExchange(config)
 
-const persist = createPersister(async () => {
-  await saveState(statePath, state);
-});
+  const engine = new SignalEngine(config, state, tn, exchange)
+  const reporter = new NotionReporter(config, state)
+  const scheduler = new Scheduler(state, reporter)
 
-const server = createHttpServer({
-  port: config.serverPort,
-  scheduler,
-  adminToken: config.adminToken,
-  onReload: async () => {
-    accounts = await loadAccounts({
-      accountsFile: config.accountsFile,
-      encrypted: config.accountsFileEncrypted,
-      masterKey: config.accountsMasterKey,
-    });
-    await scheduler.reloadAccounts(accounts);
-  },
-});
+  console.log(`[System] Mode: ${mode}`)
+  console.log(`[System] Exchange: ${config.exchangeEnabled ? config.exchangeProvider : 'disabled (TrueNorth only)'}`)
+  console.log(`[System] Pairs: ${config.tradingPairs.join(', ')}`)
+  console.log(`[System] Signal interval: ${config.signalScanIntervalMs / 60000}min | Report: ${config.notionReportHour}:${String(config.notionReportMinute).padStart(2, '0')}`)
 
-await server.listen();
+  scheduler.start(config.notionReportHour, config.notionReportMinute)
 
-scheduler.start(async () => {
-  await persist();
-});
+  const shutdown = () => {
+    console.log('[System] Shutting down...')
+    scheduler.stop()
+    process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-async function shutdown(signal: string) {
-  try {
-    scheduler.stop();
-    await persist.flush();
-    await server.close();
-  } finally {
-    process.exit(0);
+  while (true) {
+    try {
+      await engine.tick()
+    } catch (err) {
+      console.error('[System] Tick error:', err)
+    }
+    await sleep(CYCLE_INTERVAL_MS)
   }
 }
 
-function createPersister(fn: () => Promise<void>) {
-  let pending: Promise<void> | null = null;
-  let queued = false;
-
-  const run = async () => {
-    pending = fn()
-      .catch(() => undefined)
-      .finally(() => {
-        pending = null;
-      });
-    await pending;
-    if (queued) {
-      queued = false;
-      await run();
-    }
-  };
-
-  const trigger = async () => {
-    if (pending) {
-      queued = true;
-      return;
-    }
-    await run();
-  };
-
-  trigger.flush = async () => {
-    while (pending || queued) {
-      await trigger();
-    }
-  };
-
-  return trigger as (() => Promise<void>) & { flush: () => Promise<void> };
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms))
 }
+
+main().catch(err => {
+  console.error('[Fatal]', err)
+  process.exit(1)
+})
