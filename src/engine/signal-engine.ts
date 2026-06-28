@@ -25,7 +25,7 @@ export class SignalEngine {
 
     const klinesMap = await this.fetchKlines()
     const tnSnapshot = this.state.lastTnAnalysis ??
-      await this.tn.fetchMarketSnapshot(klinesMap)
+      await this.tn.fetchMarketSnapshot()
 
     const scores = await runScorer(this.config, this.state, this.tn, this.exchange, klinesMap)
     const anomalies = await runAnomalyScan(this.config, this.state, tnSnapshot, this.exchange, klinesMap)

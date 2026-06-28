@@ -5,7 +5,7 @@ import { createExchange } from './exchange/factory.js'
 import { SignalEngine } from './engine/signal-engine.js'
 import { Scheduler } from './engine/scheduler.js'
 import { NotionReporter } from './notion/reporter.js'
-import { ExecMode, getExecMode } from './engine/executor.js'
+import { getExecMode } from './engine/executor.js'
 
 const CYCLE_INTERVAL_MS = 10000
 

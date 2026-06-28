@@ -153,6 +153,7 @@ export interface IExchange {
 }
 
 export interface RuntimeConfig {
+  truenorthMcpUrl: string
   claudeApiKey: string
   claudeModel: string
   exchangeEnabled: boolean

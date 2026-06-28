@@ -12,7 +12,7 @@ export async function runScorer(
   const now = Date.now()
   if (now - state.lastSignalTime < config.signalScanIntervalMs) return []
 
-  const tnSnapshot = await tn.fetchMarketSnapshot(klinesMap)
+  const tnSnapshot = await tn.fetchMarketSnapshot()
   state.lastTnAnalysis = tnSnapshot
   state.lastTnAnalysisTime = now
   state.lastSignalTime = now

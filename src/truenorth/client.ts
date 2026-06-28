@@ -1,38 +1,65 @@
-import type { RuntimeConfig, TrueNorthAnalysis, TechnicalIndicators, Kline } from '../core/types.js'
-import { MarketRegime } from '../core/types.js'
+import type { RuntimeConfig, TrueNorthAnalysis, TechnicalIndicators, Kline, MarketRegime } from '../core/types.js'
+import { MarketRegime as MR } from '../core/types.js'
+import { MCPClient } from './mcp-client.js'
 
-interface ClaudeResponse {
-  content: Array<{ type: string; text?: string }>
+interface MarketScanResult {
+  status: string
+  trending?: { trending: Array<{ name: string; symbol: string }> }
+  performance?: {
+    summary?: string
+    signalCounts?: Record<string, number>
+    signals?: Record<string, string[]>
+  }
+}
+
+interface TechAnalysisResult {
+  status?: string
+  summary?: string
+  technical_analysis?: { indicators?: Record<string, unknown> }
+  kline_analysis?: unknown
+  token_metadata?: { token_address?: string }
+}
+
+interface BarsResult {
+  status?: string
+  data?: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>
+}
+
+const TOKEN_MAP: Record<string, string> = {
+  BTCUSDT: 'bitcoin',
+  ETHUSDT: 'ethereum',
+  SOLUSDT: 'solana',
+  BNBUSDT: 'binancecoin',
+}
+
+const TOKEN_REVERSE: Record<string, string> = {
+  bitcoin: 'BTCUSDT',
+  ethereum: 'ETHUSDT',
+  solana: 'SOLUSDT',
+  binancecoin: 'BNBUSDT',
 }
 
 export class TrueNorthClient {
   private config: RuntimeConfig
+  private mcp: MCPClient
   private cache: TrueNorthAnalysis | null = null
   private cacheTime = 0
 
   constructor(config: RuntimeConfig) {
     this.config = config
+    this.mcp = new MCPClient(config.truenorthMcpUrl)
   }
 
-  async fetchMarketSnapshot(klinesMap?: Map<string, Kline[]>): Promise<TrueNorthAnalysis> {
+  async fetchMarketSnapshot(): Promise<TrueNorthAnalysis> {
     const now = Date.now()
     if (this.cache && (now - this.cacheTime) < this.config.tnCacheTtlMs) {
       return this.cache
     }
 
-    try {
-      const prompt = this.buildSnapshotPrompt(klinesMap)
-      const json = await this.callClaude(prompt, this.config.tnMaxRetries)
-      const analysis = this.parseSnapshot(json)
-      this.cache = analysis
-      this.cacheTime = now
-      console.log(`[TrueNorth] Snapshot: regime=${analysis.regime}, sentiment=${analysis.sentiment}, risk=${analysis.riskLevel}`)
-      return analysis
-    } catch (err) {
-      console.error('[TrueNorth] Snapshot failed:', err)
-      if (this.cache) return this.cache
-      return this.defaultSnapshot()
-    }
+    const analysis = await this.fetchFromMCP()
+    this.cache = analysis
+    this.cacheTime = now
+    return analysis
   }
 
   async getIndicators(klines: Kline[]): Promise<TechnicalIndicators | null> {
@@ -57,122 +84,101 @@ export class TrueNorthClient {
     const change = ((last - prev) / prev) * 100
     const atr = this.atr(klines, 14)
     const avg = closes.reduce((a, b) => a + b, 0) / closes.length
-    if ((atr / avg) * 100 > 5) return MarketRegime.VOLATILE
-    if (change > 8 && ind.rsi14 > 60) return MarketRegime.TRENDING_UP
-    if (change < -8 && ind.rsi14 < 40) return MarketRegime.TRENDING_DOWN
-    return MarketRegime.RANGING
+    if ((atr / avg) * 100 > 5) return MR.VOLATILE
+    if (change > 8 && ind.rsi14 > 60) return MR.TRENDING_UP
+    if (change < -8 && ind.rsi14 < 40) return MR.TRENDING_DOWN
+    return MR.RANGING
   }
 
-  private buildSnapshotPrompt(klinesMap?: Map<string, Kline[]>): string {
-    const pairs: string[] = []
-    if (klinesMap) {
-      for (const [sym, kls] of klinesMap) {
-        if (kls.length < 10) continue
-        const last = kls[kls.length - 1]
-        const first = kls[0]
-        const chg = (((last.close - first.close) / first.close) * 100).toFixed(2)
-        pairs.push(`${sym}: price=${last.close}, 24hChg=${chg}%`)
-      }
-    }
+  private async fetchFromMCP(): Promise<TrueNorthAnalysis> {
+    const perToken = new Map<string, { price: number; rsi: number; trend: string; sentiment: string; fundingRate: number }>()
+    let regime = MR.RANGING
+    let sentiment: 'bullish' | 'bearish' | 'neutral' = 'neutral'
+    let riskLevel: 'low' | 'medium' | 'high' = 'medium'
+    let riskReason = 'No MCP data'
+    let topGainers: string[] = []
+    let topLosers: string[] = []
+    let sectorRotation: string[] = []
 
-    return `You are a crypto market analyst. Using TrueNorth MCP tools, analyze:
-${this.config.tradingPairs.join(', ')}
-
-${pairs.length > 0 ? `Recent data:\n${pairs.join('\n')}\n` : ''}
-Return ONLY valid JSON:
-{
-  "regime": "trending_up|trending_down|ranging|volatile",
-  "sentiment": "bullish|bearish|neutral",
-  "riskLevel": "low|medium|high",
-  "riskReason": "brief reason",
-  "marketScan": { "topGainers": [], "topLosers": [], "sectorRotation": [] },
-  "perToken": {
-    "BTCUSDT": { "price": 0, "rsi": 50, "trend": "neutral", "sentiment": "neutral", "fundingRate": 0.01 }
-  }
-}`
-  }
-
-  private async callClaude(prompt: string, maxRetries: number): Promise<string> {
-    let lastErr: Error | null = null
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': this.config.claudeApiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: this.config.claudeModel,
-            max_tokens: 2048,
-            system: 'You use TrueNorth MCP tools. Return ONLY valid JSON, no markdown, no explanation.',
-            messages: [{ role: 'user', content: prompt }],
-          }),
-        })
-
-        if (!res.ok) {
-          const body = await res.text()
-          throw new Error(`HTTP ${res.status}: ${body}`)
-        }
-
-        const data = await res.json() as ClaudeResponse
-        const text = data.content.find(c => c.type === 'text')?.text ?? ''
-        const match = text.match(/\{[\s\S]*\}/)
-        return match ? match[0] : text
-      } catch (err) {
-        lastErr = err as Error
-        await new Promise(r => setTimeout(r, 2000 * (i + 1)))
-      }
-    }
-    throw lastErr ?? new Error('Claude API failed')
-  }
-
-  private parseSnapshot(json: string): TrueNorthAnalysis {
     try {
-      const d = JSON.parse(json)
-      const regimeStr = (d.regime ?? 'ranging') as string
-      let regime = MarketRegime.RANGING
-      if (regimeStr === 'trending_up') regime = MarketRegime.TRENDING_UP
-      else if (regimeStr === 'trending_down') regime = MarketRegime.TRENDING_DOWN
-      else if (regimeStr === 'volatile') regime = MarketRegime.VOLATILE
+      const scan = await this.mcp.callTool<MarketScanResult>('combo_market_scan')
+      if (scan?.status === 'success') {
+        const perf = scan.performance
+        if (perf?.signals?.strong_buy) topGainers = perf.signals.strong_buy.slice(0, 5)
+        if (perf?.signals?.buy) topLosers = perf.signals.buy.slice(0, 3)
 
-      const perToken = new Map<string, { price: number; rsi: number; trend: string; sentiment: string; fundingRate: number }>()
-      if (d.perToken) {
-        for (const [k, v] of Object.entries(d.perToken)) {
-          perToken.set(k, v as { price: number; rsi: number; trend: string; sentiment: string; fundingRate: number })
+        if (perf?.signalCounts) {
+          const strong = perf.signalCounts.STRONG_BUY ?? 0
+          const buy = perf.signalCounts.BUY ?? 0
+          const weak = (perf.signalCounts.WEAK ?? 0) + (perf.signalCounts.UNDERPERFORMING ?? 0)
+
+          if (strong > buy && strong > weak) {
+            sentiment = 'bullish'
+            regime = MR.TRENDING_UP
+            riskLevel = 'low'
+          } else if (weak > strong + buy) {
+            sentiment = 'bearish'
+            regime = MR.TRENDING_DOWN
+            riskLevel = 'medium'
+          } else {
+            sentiment = 'neutral'
+            regime = MR.RANGING
+          }
+          riskReason = `${strong} strong_buy, ${buy} buy, ${weak} weak signals`
         }
-      }
-      return {
-        timestamp: Date.now(),
-        regime,
-        sentiment: d.sentiment ?? 'neutral',
-        riskLevel: d.riskLevel ?? 'medium',
-        riskReason: d.riskReason ?? 'No data',
-        marketScan: {
-          topGainers: d.marketScan?.topGainers ?? [],
-          topLosers: d.marketScan?.topLosers ?? [],
-          sectorRotation: d.marketScan?.sectorRotation ?? [],
-        },
-        perToken,
       }
     } catch {
-      return this.defaultSnapshot()
+      // fallback to defaults
     }
-  }
 
-  private defaultSnapshot(): TrueNorthAnalysis {
-    const perToken = new Map<string, { price: number; rsi: number; trend: string; sentiment: string; fundingRate: number }>()
-    for (const p of this.config.tradingPairs) {
-      perToken.set(p, { price: 0, rsi: 50, trend: 'neutral', sentiment: 'neutral', fundingRate: 0.01 })
+    try {
+      const allTokenIds = this.config.tradingPairs.map(s => TOKEN_MAP[s] ?? '').filter(Boolean)
+
+      for (const id of allTokenIds) {
+        const bars = await this.mcp.callTool<BarsResult>('historical_bars', {
+          instruments: id,
+          asset_class: 'crypto',
+          timeframe: '1h',
+          instrument_type: 'perp',
+          limit: 100,
+        })
+
+        if (bars?.data && bars.data.length > 0) {
+          const klines: Kline[] = bars.data.map(d => ({
+            timestamp: d.timestamp,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+            volume: d.volume,
+          }))
+
+          const price = klines[klines.length - 1].close
+          const first = klines[0].close
+          const ind = await this.getIndicators(klines)
+          const trend = price > first ? 'up' : 'down'
+
+          const pair = TOKEN_REVERSE[id] ?? id.toUpperCase()
+          perToken.set(pair, {
+            price,
+            rsi: ind?.rsi14 ?? 50,
+            trend,
+            sentiment,
+            fundingRate: 0.01,
+          })
+        }
+      }
+    } catch {
+      // fallback: perToken stays empty, will use defaults
     }
+
     return {
       timestamp: Date.now(),
-      regime: MarketRegime.RANGING,
-      sentiment: 'neutral',
-      riskLevel: 'medium',
-      riskReason: 'Default fallback',
-      marketScan: { topGainers: [], topLosers: [], sectorRotation: [] },
+      regime,
+      sentiment,
+      riskLevel,
+      riskReason,
+      marketScan: { topGainers, topLosers, sectorRotation },
       perToken,
     }
   }
@@ -204,8 +210,8 @@ Return ONLY valid JSON:
       const s = closes.slice(0, i)
       vals.push(this.ema(s, 12) - this.ema(s, 26))
     }
-    const s = this.ema(vals, 9)
-    return { macd: m, signal: s, histogram: m - s }
+    const sig = vals.length > 0 ? this.ema(vals, 9) : 0
+    return { macd: m, signal: sig, histogram: m - sig }
   }
 
   private bb(closes: number[], period = 20, mult = 2): { upper: number; middle: number; lower: number } {

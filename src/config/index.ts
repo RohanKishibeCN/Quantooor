@@ -28,7 +28,8 @@ function list(name: string, fallback: string[]): string[] {
 
 export function loadConfig(): RuntimeConfig {
   return {
-    claudeApiKey: required('CLAUDE_API_KEY'),
+    truenorthMcpUrl: required('TRUENORTH_MCP_URL'),
+    claudeApiKey: process.env['CLAUDE_API_KEY'] ?? '',
     claudeModel: process.env['CLAUDE_MODEL'] ?? 'claude-sonnet-4-20250514',
 
     exchangeEnabled: boolean('EXCHANGE_ENABLED', false),
