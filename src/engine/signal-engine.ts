@@ -23,14 +23,15 @@ export class SignalEngine {
   async tick(): Promise<void> {
     if (this.state.isPaused) return
 
-    const tnSnapshot = this.state.lastTnAnalysis ??
-      await this.tn.fetchMarketSnapshot()
+    const tnSnapshot = await this.tn.fetchMarketSnapshot()
+    this.state.lastTnAnalysis = tnSnapshot
+    this.state.lastTnAnalysisTime = Date.now()
 
-    const scores = await runScorer(this.config, this.state, this.tn, this.exchange)
-    const anomalies = await runAnomalyScan(this.config, this.state, tnSnapshot, this.exchange, this.tn)
-    const fundings = await runFundingWatch(this.config, this.state, tnSnapshot, this.exchange)
+    const scores = await runScorer(this.config, this.state, this.tn)
+    await runAnomalyScan(this.config, this.state, tnSnapshot, this.exchange, this.tn)
+    await runFundingWatch(this.config, this.state, tnSnapshot, this.exchange)
 
-    if (scores.length > 0 || anomalies.length > 0) {
+    if (scores.length > 0) {
       const mode = getExecMode(this.config)
       if (mode === ExecMode.FULL_AUTO || mode === ExecMode.SEMI_AUTO) {
         const orders = this.signalsToOrders(scores)

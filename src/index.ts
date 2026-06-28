@@ -42,15 +42,17 @@ async function main(): Promise<void> {
   const tn = new TrueNorthClient(config)
   const exchange = await createExchange(config)
 
-  const engine = new SignalEngine(config, state, tn, exchange)
-  const reporter = new NotionReporter(config, state)
-  const scheduler = new Scheduler(state, reporter)
-
   console.log(`[System] Mode: ${mode}`)
   console.log(`[System] Exchange: ${config.exchangeEnabled ? config.exchangeProvider : 'disabled (TrueNorth only)'}`)
   console.log(`[System] Pairs: ${config.tradingPairs.join(', ')}`)
   console.log(`[System] Signal interval: ${config.signalScanIntervalMs / 60000}min | Report: ${config.notionReportHour}:${String(config.notionReportMinute).padStart(2, '0')}`)
+  console.log(`[System] Cache TTL: ${config.tnCacheTtlMs / 60000}min | MCP URL: ${config.truenorthMcpUrl.slice(0, 50)}...`)
 
+  await tn.warmup()
+
+  const engine = new SignalEngine(config, state, tn, exchange)
+  const reporter = new NotionReporter(config, state)
+  const scheduler = new Scheduler(state, reporter)
   scheduler.start(config.notionReportHour, config.notionReportMinute)
 
   const shutdown = () => {

@@ -21,19 +21,14 @@ export async function runFundingWatch(
     let label = ''
 
     if (rate > config.fundingHighThreshold) {
-      level = 'high'
-      label = '过热，空头有利'
+      level = 'high'; label = '过热，空头有利'
     } else if (rate < config.fundingLowThreshold) {
-      level = 'low'
-      label = '恐慌，多头有利'
+      level = 'low'; label = '恐慌，多头有利'
     } else if (rate > 0.01) {
-      level = 'normal_high'
-      label = '正常偏多'
+      level = 'normal_high'; label = '正常偏多'
     } else if (rate < -0.01) {
-      level = 'normal_low'
-      label = '正常偏空'
+      level = 'normal_low'; label = '正常偏空'
     } else {
-      level = 'normal'
       label = '正常'
     }
 
@@ -41,13 +36,11 @@ export async function runFundingWatch(
     console.log(`[Funding] ${pair}: ${rate.toFixed(3)}% → ${label}`)
   }
 
-  if (exchange && exchange) {
+  if (exchange) {
     const rates = await exchange.getAllFundingRates(config.tradingPairs)
     for (const [pair, rate] of rates) {
       const idx = snapshots.findIndex(s => s.symbol === pair)
-      if (idx >= 0) {
-        snapshots[idx].rate = rate.fundingRate
-      }
+      if (idx >= 0) snapshots[idx].rate = rate.fundingRate
     }
   }
 

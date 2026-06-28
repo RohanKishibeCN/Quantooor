@@ -17,6 +17,7 @@ export class MCPClient {
 
   async callTool<T = string>(name: string, args?: Record<string, unknown>): Promise<T | null> {
     const id = String(++this.requestId)
+    const label = args ? `${name}(${JSON.stringify(args).slice(0, 60)})` : name
 
     try {
       const res = await fetch(this.endpoint, {
@@ -33,27 +34,40 @@ export class MCPClient {
         }),
       })
 
-      if (!res.ok) return null
+      if (!res.ok) {
+        console.error(`[MCP] ${label} HTTP ${res.status}`)
+        return null
+      }
 
       const text = await res.text()
       const textContent = this.extractSSEData(text)
-      if (!textContent) return null
+      if (!textContent) {
+        console.error(`[MCP] ${label} no SSE data`)
+        return null
+      }
 
       const parsed = JSON.parse(textContent) as MCPResponse
       if (parsed.error) {
-        console.error(`[MCP] Tool ${name} error:`, parsed.error.message)
+        console.error(`[MCP] ${label} RPC error: ${parsed.error.message}`)
         return null
       }
 
       const content = parsed.result?.content
-      if (!content || content.length === 0) return null
+      if (!content || content.length === 0) {
+        console.error(`[MCP] ${label} empty content`)
+        return null
+      }
 
       const resultText = content.find(c => c.type === 'text')?.text
-      if (!resultText) return null
+      if (!resultText) {
+        console.error(`[MCP] ${label} no text content`)
+        return null
+      }
 
-      return JSON.parse(resultText) as T
+      const parsedResult = JSON.parse(resultText)
+      return parsedResult as T
     } catch (err) {
-      console.error(`[MCP] callTool ${name} error:`, err)
+      console.error(`[MCP] ${label} exception:`, err)
       return null
     }
   }

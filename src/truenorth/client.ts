@@ -12,14 +12,6 @@ interface MarketScanResult {
   }
 }
 
-interface TechAnalysisResult {
-  status?: string
-  summary?: string
-  technical_analysis?: { indicators?: Record<string, unknown> }
-  kline_analysis?: unknown
-  token_metadata?: { token_address?: string }
-}
-
 interface BarsResult {
   status?: string
   data?: Record<string, Array<{
@@ -63,6 +55,13 @@ export class TrueNorthClient {
     return this.klinesCache.get(symbol) ?? []
   }
 
+  async warmup(): Promise<void> {
+    console.log('[TrueNorth] Warming up - fetching initial data...')
+    const start = Date.now()
+    await this.fetchFromMCP()
+    console.log(`[TrueNorth] Warmup complete in ${Date.now() - start}ms`)
+  }
+
   async fetchMarketSnapshot(): Promise<TrueNorthAnalysis> {
     const now = Date.now()
     if (this.cache && (now - this.cacheTime) < this.config.tnCacheTtlMs) {
@@ -78,15 +77,19 @@ export class TrueNorthClient {
   async getIndicators(klines: Kline[]): Promise<TechnicalIndicators | null> {
     if (klines.length < 50) return null
     const closes = klines.map(k => k.close)
+    const rsi14 = this.rsv(closes, 14)
+    const ema9_ = this.ema(closes, 9)
+    const ema21_ = this.ema(closes, 21)
+    const bb_ = this.bb(closes)
     return {
-      rsi14: this.rsv(closes, 14),
-      ema9: this.ema(closes, 9),
-      ema21: this.ema(closes, 21),
+      rsi14,
+      ema9: ema9_,
+      ema21: ema21_,
       ema50: this.ema(closes, 50),
       macd: this.macd(closes),
-      bbUpper: this.bb(closes).upper,
-      bbLower: this.bb(closes).lower,
-      bbMiddle: this.bb(closes).middle,
+      bbUpper: bb_.upper,
+      bbLower: bb_.lower,
+      bbMiddle: bb_.middle,
     }
   }
 
@@ -104,6 +107,7 @@ export class TrueNorthClient {
   }
 
   private async fetchFromMCP(): Promise<TrueNorthAnalysis> {
+    const start = Date.now()
     const perToken = new Map<string, { price: number; rsi: number; trend: string; sentiment: string; fundingRate: number }>()
     let regime = MR.RANGING
     let sentiment: 'bullish' | 'bearish' | 'neutral' = 'neutral'
@@ -111,8 +115,9 @@ export class TrueNorthClient {
     let riskReason = 'No MCP data'
     let topGainers: string[] = []
     let topLosers: string[] = []
-    let sectorRotation: string[] = []
+    const sectorRotation: string[] = []
 
+    console.log('[TrueNorth] Fetching combo_market_scan...')
     try {
       const scan = await this.mcp.callTool<MarketScanResult>('combo_market_scan')
       if (scan?.status === 'success') {
@@ -137,17 +142,23 @@ export class TrueNorthClient {
             sentiment = 'neutral'
             regime = MR.RANGING
           }
-          riskReason = `${strong} strong_buy, ${buy} buy, ${weak} weak signals`
+          riskReason = `${strong} strong_buy, ${buy} buy, ${weak} weak`
         }
+        console.log(`[TrueNorth] Market scan OK: regime=${regime} sent=${sentiment} ${riskReason}`)
+      } else {
+        console.log(`[TrueNorth] Market scan returned status=${scan?.status}`)
       }
-    } catch {
-      // fallback to defaults
+    } catch (err) {
+      console.error('[TrueNorth] Market scan failed:', err)
     }
 
-    try {
-      const allTokenIds = this.config.tradingPairs.map(s => TOKEN_MAP[s] ?? '').filter(Boolean)
+    console.log('[TrueNorth] Fetching historical_bars...')
+    const allTokenIds = this.config.tradingPairs.map(s => TOKEN_MAP[s] ?? '').filter(Boolean)
+    let barOk = 0
+    let barFail = 0
 
-      for (const id of allTokenIds) {
+    for (const id of allTokenIds) {
+      try {
         const bars = await this.mcp.callTool<BarsResult>('historical_bars', {
           instruments: id,
           asset_class: 'crypto',
@@ -182,11 +193,19 @@ export class TrueNorthClient {
             sentiment,
             fundingRate: 0.01,
           })
+          barOk++
+          console.log(`[TrueNorth] ${pair}: ${klines.length} bars, price=${price}, rsi=${ind?.rsi14 ?? 'N/A'}`)
+        } else {
+          barFail++
+          console.log(`[TrueNorth] ${id}: no bars data`)
         }
+      } catch (err) {
+        barFail++
+        console.error(`[TrueNorth] ${id} fetch error:`, err)
       }
-    } catch {
-      // fallback: perToken stays empty, will use defaults
     }
+
+    console.log(`[TrueNorth] Bars: ${barOk} ok / ${barFail} fail, total ${Date.now() - start}ms`)
 
     return {
       timestamp: Date.now(),
