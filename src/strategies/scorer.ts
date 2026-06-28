@@ -27,13 +27,15 @@ export async function runScorer(
     const factors: Record<string, number> = {}
     let score = 0
 
+    const w = config.signalWeights
+
     if (ind) {
-      const rsiScore = ind.rsi14 > 40 && ind.rsi14 < 60 ? 15 : ind.rsi14 > 30 && ind.rsi14 < 40 ? 5 : ind.rsi14 < 30 ? -15 : 0
-      factors['rsi'] = (rsiScore / 100) * config.signalWeights.rsi
+      const rsiScore = ind.rsi14 > 40 && ind.rsi14 < 60 ? 1.5 : ind.rsi14 > 30 && ind.rsi14 < 40 ? 0.5 : ind.rsi14 < 30 ? -2 : 0
+      factors['rsi'] = rsiScore * w.rsi
       score += factors['rsi']
 
-      const emaScore = ind.ema9 > ind.ema21 ? 10 : -10
-      factors['ema'] = (emaScore / 100) * config.signalWeights.ema
+      const emaScore = ind.ema9 > ind.ema21 ? 1 : -1
+      factors['ema'] = emaScore * w.ema
       score += factors['ema']
     } else {
       factors['rsi'] = 0
@@ -41,17 +43,17 @@ export async function runScorer(
     }
 
     if (tokenData) {
-      const trendScore = tokenData.trend === 'up' ? 10 : tokenData.trend === 'down' ? -10 : 5
-      factors['trend'] = (trendScore / 100) * config.signalWeights.trend
+      const trendScore = tokenData.trend === 'up' ? 1 : tokenData.trend === 'down' ? -1 : 0
+      factors['trend'] = trendScore * w.trend
       score += factors['trend']
 
-      const sentScore = tokenData.sentiment === 'bullish' ? 10 : tokenData.sentiment === 'bearish' ? -10 : 5
-      factors['sentiment'] = (sentScore / 100) * config.signalWeights.sentiment
+      const sentScore = tokenData.sentiment === 'bullish' ? 1 : tokenData.sentiment === 'bearish' ? -1 : 0
+      factors['sentiment'] = sentScore * w.sentiment
       score += factors['sentiment']
 
       const fundingR = tokenData.fundingRate
-      const fundScore = Math.abs(fundingR) < 0.01 ? 10 : Math.abs(fundingR) < 0.05 ? 5 : -10
-      factors['funding'] = (fundScore / 100) * config.signalWeights.funding
+      const fundScore = Math.abs(fundingR) < 0.01 ? 1 : Math.abs(fundingR) < 0.05 ? 0.5 : -1
+      factors['funding'] = fundScore * w.funding
       score += factors['funding']
     } else {
       factors['trend'] = 0
@@ -59,8 +61,8 @@ export async function runScorer(
       factors['funding'] = 0
     }
 
-    const riskScore = tnSnapshot.riskLevel === 'low' ? 10 : tnSnapshot.riskLevel === 'high' ? -10 : 0
-    factors['risk'] = (riskScore / 100) * config.signalWeights.risk
+    const riskScore = tnSnapshot.riskLevel === 'low' ? 1 : tnSnapshot.riskLevel === 'high' ? -1 : 0
+    factors['risk'] = riskScore * w.risk
     score += factors['risk']
 
     let direction: ScoreResult['direction'] = 'neutral'
@@ -68,16 +70,16 @@ export async function runScorer(
 
     if (score >= config.signalBuyThreshold) {
       direction = 'buy'
-      strength = score >= config.signalBuyThreshold + 15 ? 'strong_buy' : 'buy'
+      strength = score >= config.signalBuyThreshold * 1.5 ? 'strong_buy' : 'buy'
     } else if (score <= config.signalSellThreshold) {
       direction = 'sell'
-      strength = score <= config.signalSellThreshold - 15 ? 'strong_sell' : 'sell'
+      strength = score <= config.signalSellThreshold * 1.5 ? 'strong_sell' : 'sell'
     }
 
     const reason = `RSI:${factors['rsi']?.toFixed(1) ?? '0'}, EMA:${factors['ema']?.toFixed(1) ?? '0'}, Trend:${factors['trend']?.toFixed(1) ?? '0'}, Sent:${factors['sentiment']?.toFixed(1) ?? '0'}, Fund:${factors['funding']?.toFixed(1) ?? '0'}, Risk:${factors['risk']?.toFixed(1) ?? '0'}`
 
     scores.push({ symbol: pair, score, direction, strength, factors, reason })
-    console.log(`[Scorer] ${pair}: score=${score} ${strength}`)
+    console.log(`[Scorer] ${pair}: score=${score} ${strength} | ${reason}`)
   }
 
   state.signals = scores
