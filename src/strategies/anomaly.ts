@@ -1,12 +1,13 @@
-import type { RuntimeConfig, SystemState, AnomalyEvent, TrueNorthAnalysis, Kline } from '../core/types.js'
+import type { RuntimeConfig, SystemState, AnomalyEvent, TrueNorthAnalysis } from '../core/types.js'
 import type { IExchange } from '../core/types.js'
+import { TrueNorthClient } from '../truenorth/client.js'
 
 export async function runAnomalyScan(
   config: RuntimeConfig,
   state: SystemState,
   tnSnapshot: TrueNorthAnalysis,
   exchange: IExchange | null,
-  klinesMap: Map<string, Kline[]>
+  tn: TrueNorthClient,
 ): Promise<AnomalyEvent[]> {
   const now = Date.now()
   if (now - state.lastAnomalyTime < config.anomalyScanIntervalMs) return []
@@ -15,8 +16,8 @@ export async function runAnomalyScan(
   const events: AnomalyEvent[] = []
 
   for (const pair of config.tradingPairs) {
-    const klines = klinesMap.get(pair)
-    if (!klines || klines.length < 24) continue
+    const klines = tn.getCachedKlines(pair)
+    if (klines.length < 24) continue
 
     const last = klines[klines.length - 1]
     const first = klines[0]

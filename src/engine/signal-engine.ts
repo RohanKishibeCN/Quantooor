@@ -1,4 +1,4 @@
-import type { RuntimeConfig, SystemState, Kline, TradeOrder, ScoreResult } from '../core/types.js'
+import type { RuntimeConfig, SystemState, TradeOrder, ScoreResult } from '../core/types.js'
 import { OrderSide, PositionSide } from '../core/types.js'
 import type { IExchange } from '../core/types.js'
 import { TrueNorthClient } from '../truenorth/client.js'
@@ -23,12 +23,11 @@ export class SignalEngine {
   async tick(): Promise<void> {
     if (this.state.isPaused) return
 
-    const klinesMap = await this.fetchKlines()
     const tnSnapshot = this.state.lastTnAnalysis ??
       await this.tn.fetchMarketSnapshot()
 
-    const scores = await runScorer(this.config, this.state, this.tn, this.exchange, klinesMap)
-    const anomalies = await runAnomalyScan(this.config, this.state, tnSnapshot, this.exchange, klinesMap)
+    const scores = await runScorer(this.config, this.state, this.tn, this.exchange)
+    const anomalies = await runAnomalyScan(this.config, this.state, tnSnapshot, this.exchange, this.tn)
     const fundings = await runFundingWatch(this.config, this.state, tnSnapshot, this.exchange)
 
     if (scores.length > 0 || anomalies.length > 0) {
@@ -66,19 +65,5 @@ export class SignalEngine {
       })
     }
     return orders
-  }
-
-  private async fetchKlines(): Promise<Map<string, Kline[]>> {
-    if (!this.exchange) return new Map()
-    const results = await Promise.allSettled(
-      this.config.tradingPairs.map(s => this.exchange!.getKlines(s, '1h', 100))
-    )
-    const map = new Map<string, Kline[]>()
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled' && r.value.length > 0) {
-        map.set(this.config.tradingPairs[i], r.value)
-      }
-    })
-    return map
   }
 }

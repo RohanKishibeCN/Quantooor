@@ -52,10 +52,15 @@ export class TrueNorthClient {
   private mcp: MCPClient
   private cache: TrueNorthAnalysis | null = null
   private cacheTime = 0
+  private klinesCache = new Map<string, Kline[]>()
 
   constructor(config: RuntimeConfig) {
     this.config = config
     this.mcp = new MCPClient(config.truenorthMcpUrl)
+  }
+
+  getCachedKlines(symbol: string): Kline[] {
+    return this.klinesCache.get(symbol) ?? []
   }
 
   async fetchMarketSnapshot(): Promise<TrueNorthAnalysis> {
@@ -162,12 +167,14 @@ export class TrueNorthClient {
             volume: Number(d.volume),
           }))
 
+          const pair = TOKEN_REVERSE[id] ?? id.toUpperCase()
+          this.klinesCache.set(pair, klines)
+
           const price = klines[klines.length - 1].close
           const first = klines[0].close
           const ind = await this.getIndicators(klines)
           const trend = price > first ? 'up' : 'down'
 
-          const pair = TOKEN_REVERSE[id] ?? id.toUpperCase()
           perToken.set(pair, {
             price,
             rsi: ind?.rsi14 ?? 50,

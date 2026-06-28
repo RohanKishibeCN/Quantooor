@@ -1,4 +1,4 @@
-import type { RuntimeConfig, SystemState, ScoreResult, TrueNorthAnalysis, TechnicalIndicators, Kline } from '../core/types.js'
+import type { RuntimeConfig, SystemState, ScoreResult, TrueNorthAnalysis, TechnicalIndicators } from '../core/types.js'
 import type { IExchange } from '../core/types.js'
 import { TrueNorthClient } from '../truenorth/client.js'
 
@@ -7,7 +7,6 @@ export async function runScorer(
   state: SystemState,
   tn: TrueNorthClient,
   exchange: IExchange | null,
-  klinesMap: Map<string, Kline[]>
 ): Promise<ScoreResult[]> {
   const now = Date.now()
   if (now - state.lastSignalTime < config.signalScanIntervalMs) return []
@@ -21,7 +20,7 @@ export async function runScorer(
 
   for (const pair of config.tradingPairs) {
     const tokenData = tnSnapshot.perToken.get(pair)
-    const klines = klinesMap.get(pair) ?? []
+    const klines = tn.getCachedKlines(pair)
     const ind = await tn.getIndicators(klines)
 
     const factors: Record<string, number> = {}
