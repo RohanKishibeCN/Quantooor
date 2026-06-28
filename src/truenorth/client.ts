@@ -22,7 +22,15 @@ interface TechAnalysisResult {
 
 interface BarsResult {
   status?: string
-  data?: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>
+  data?: Record<string, Array<{
+    instrument: string
+    t: string
+    open: string
+    high: string
+    low: string
+    close: string
+    volume: string
+  }>>
 }
 
 const TOKEN_MAP: Record<string, string> = {
@@ -143,14 +151,15 @@ export class TrueNorthClient {
           limit: 100,
         })
 
-        if (bars?.data && bars.data.length > 0) {
-          const klines: Kline[] = bars.data.map(d => ({
-            timestamp: d.timestamp,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-            volume: d.volume,
+        if (bars?.data && bars.data[id] && bars.data[id].length > 0) {
+          const rawBars = bars.data[id]
+          const klines: Kline[] = rawBars.map(d => ({
+            timestamp: new Date(d.t).getTime(),
+            open: Number(d.open),
+            high: Number(d.high),
+            low: Number(d.low),
+            close: Number(d.close),
+            volume: Number(d.volume),
           }))
 
           const price = klines[klines.length - 1].close
