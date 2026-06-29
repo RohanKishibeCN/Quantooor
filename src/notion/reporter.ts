@@ -17,8 +17,15 @@ export class NotionReporter {
     }
 
     const now = new Date()
-    const today = new Intl.DateTimeFormat('zh-CN', { timeZone: this.config.runtimeTimezone }).format(now)
-    const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()]
+    const tzDate = new Intl.DateTimeFormat('zh-CN', { timeZone: this.config.runtimeTimezone, weekday: 'long', day: '2-digit', month: '2-digit' })
+    const tzParts = tzDate.formatToParts(now)
+    const month = tzParts.find(p => p.type === 'month')?.value ?? ''
+    const day = tzParts.find(p => p.type === 'day')?.value ?? ''
+    const weekdayFull = tzParts.find(p => p.type === 'weekday')?.value ?? ''
+
+    const weekdayMap: Record<string, string> = { '星期一': '周一', '星期二': '周二', '星期三': '周三', '星期四': '周四', '星期五': '周五', '星期六': '周六', '星期日': '周日', '星期天': '周日' }
+    const weekday = weekdayMap[weekdayFull] ?? ''
+    const today = `${month}/${day}`
     const dateStr = today.replace(/\//g, '-')
 
     const signals = this.state.signals

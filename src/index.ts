@@ -52,8 +52,8 @@ async function main(): Promise<void> {
 
   const engine = new SignalEngine(config, state, tn, exchange)
   const reporter = new NotionReporter(config, state)
-  const scheduler = new Scheduler(state, reporter)
-  scheduler.start(config.notionReportHour, config.notionReportMinute)
+  const scheduler = new Scheduler(config, state, reporter)
+  scheduler.start()
 
   const shutdown = () => {
     console.log('[System] Shutting down...')
