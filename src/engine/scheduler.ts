@@ -6,6 +6,7 @@ export class Scheduler {
   private reporter: NotionReporter
   private config: RuntimeConfig
   private interval: NodeJS.Timeout | null = null
+  private tickCount = 0
 
   constructor(config: RuntimeConfig, state: SystemState, reporter: NotionReporter) {
     this.config = config
@@ -18,24 +19,26 @@ export class Scheduler {
     const targetHour = this.config.notionReportHour
     const targetMinute = this.config.notionReportMinute
 
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      hour: 'numeric',
-      minute: 'numeric',
-      hour12: false,
-    })
-
-    console.log(`[Scheduler] Report target: ${String(targetHour).padStart(2, '0')}:${String(targetMinute).padStart(2, '0')} ${tz}`)
-    console.log(`[Scheduler] Current time (${tz}): ${fmt.format(new Date())}`)
+    console.log(`[Scheduler] Started — target: ${String(targetHour).padStart(2,'0')}:${String(targetMinute).padStart(2,'0')} ${tz}`)
 
     this.interval = setInterval(() => {
-      const parts = fmt.formatToParts(new Date())
-      const hour = Number(parts.find(p => p.type === 'hour')?.value ?? -1)
-      const minute = Number(parts.find(p => p.type === 'minute')?.value ?? -1)
+      this.tickCount++
 
-      if (hour === targetHour && minute === targetMinute && Date.now() - this.state.lastReportTime > 60000) {
+      const now = new Date()
+
+      const tzHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(now))
+      const tzMinute = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, minute: 'numeric' }).format(now))
+      const tzMinuteStr = now.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
+
+      if (this.tickCount <= 3) {
+        console.log(`[Scheduler] tick#${this.tickCount} tz=${tz} now=${tzMinuteStr} hour=${tzHour} minute=${tzMinute}`)
+      }
+
+      const sinceLast = Date.now() - this.state.lastReportTime
+
+      if (tzHour === targetHour && tzMinute === targetMinute && sinceLast > 60000) {
         this.state.lastReportTime = Date.now()
-        console.log('[Scheduler] Triggering daily report...')
+        console.log(`[Scheduler] === TRIGGER === ${tzMinuteStr} (since last: ${sinceLast}ms)`)
         this.reporter.sendDailyReport().catch(err => {
           console.error('[Scheduler] Report failed:', err)
         })

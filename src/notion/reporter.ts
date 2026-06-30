@@ -36,7 +36,20 @@ export class NotionReporter {
 
     const title = `📊 日报 ${today} (${weekday})`
 
+    console.log(`[Notion] Preparing report: title="${title}" db=${this.config.notionDatabaseId.slice(0,8)}... signalCount=${signals.length}`)
+
     try {
+      const body = {
+        parent: { database_id: this.config.notionDatabaseId },
+        properties: {
+          '名称': { title: [{ text: { content: title } }] },
+          '日期': { date: { start: dateStr } },
+          'Content': {
+            rich_text: [{ type: 'text', text: { content } }],
+          },
+        },
+      }
+
       const res = await fetch('https://api.notion.com/v1/pages', {
         method: 'POST',
         headers: {
@@ -44,24 +57,17 @@ export class NotionReporter {
           'Content-Type': 'application/json',
           'Notion-Version': '2022-06-28',
         },
-        body: JSON.stringify({
-          parent: { database_id: this.config.notionDatabaseId },
-          properties: {
-            '名称': { title: [{ text: { content: title } }] },
-            '日期': { date: { start: dateStr } },
-            'Content': {
-              rich_text: [{ type: 'text', text: { content } }],
-            },
-          },
-        }),
+        body: JSON.stringify(body),
       })
 
+      const resText = await res.text()
+
       if (!res.ok) {
-        const body = await res.text()
-        throw new Error(`Notion API error ${res.status}: ${body}`)
+        console.error(`[Notion] API ${res.status}: ${resText.slice(0, 300)}`)
+        return
       }
 
-      console.log(`[Notion] Report sent: ${title}`)
+      console.log(`[Notion] ✅ Report sent: ${title}`)
     } catch (err) {
       console.error('[Notion] Failed to send report:', err)
     }
@@ -91,7 +97,7 @@ export class NotionReporter {
         const factorStr = Object.values(f).length > 0
           ? ` [RSI:${f['rsi']?.toFixed(1) ?? '-'} EMA:${f['ema']?.toFixed(1) ?? '-'}]`
           : ''
-        lines.push(`${emoji} ${s.symbol}: 评分 ${s.score} | ${s.strength}${factorStr}`)
+        lines.push(`${emoji} ${s.symbol}: 评分 ${s.score.toFixed(1)} | ${s.strength}${factorStr}`)
       }
     }
     lines.push('')
