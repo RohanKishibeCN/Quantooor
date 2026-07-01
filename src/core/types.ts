@@ -173,6 +173,9 @@ export interface RuntimeConfig {
   totalCapitalUsdt: number
   notionApiKey: string
   notionDatabaseId: string
+  notionTitleProp: string
+  notionDateProp: string
+  notionContentProp: string
   notionReportHour: number
   notionReportMinute: number
   runtimeTimezone: string

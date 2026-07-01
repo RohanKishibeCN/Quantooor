@@ -51,6 +51,9 @@ export function loadConfig(): RuntimeConfig {
 
     notionApiKey: required('NOTION_API_KEY'),
     notionDatabaseId: required('NOTION_DATABASE_ID'),
+    notionTitleProp: process.env['NOTION_TITLE_PROP'] ?? 'Name',
+    notionDateProp: process.env['NOTION_DATE_PROP'] ?? 'Date',
+    notionContentProp: process.env['NOTION_CONTENT_PROP'] ?? 'Content',
     notionReportHour: num('NOTION_REPORT_HOUR', 9),
     notionReportMinute: num('NOTION_REPORT_MINUTE', 0),
 

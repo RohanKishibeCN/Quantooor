@@ -17,16 +17,13 @@ export class NotionReporter {
     }
 
     const now = new Date()
-    const tzDate = new Intl.DateTimeFormat('zh-CN', { timeZone: this.config.runtimeTimezone, weekday: 'long', day: '2-digit', month: '2-digit' })
-    const tzParts = tzDate.formatToParts(now)
-    const month = tzParts.find(p => p.type === 'month')?.value ?? ''
-    const day = tzParts.find(p => p.type === 'day')?.value ?? ''
-    const weekdayFull = tzParts.find(p => p.type === 'weekday')?.value ?? ''
+    const tz = this.config.runtimeTimezone
 
+    const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now)
+    const weekdayFull = new Intl.DateTimeFormat('zh-CN', { timeZone: tz, weekday: 'long' }).format(now)
     const weekdayMap: Record<string, string> = { '星期一': '周一', '星期二': '周二', '星期三': '周三', '星期四': '周四', '星期五': '周五', '星期六': '周六', '星期日': '周日', '星期天': '周日' }
     const weekday = weekdayMap[weekdayFull] ?? ''
-    const today = `${month}/${day}`
-    const dateStr = today.replace(/\//g, '-')
+    const today = dateStr.slice(5).replace('-','/')
 
     const signals = this.state.signals
     const anomalies = this.state.anomalies
@@ -39,16 +36,10 @@ export class NotionReporter {
     console.log(`[Notion] Preparing report: title="${title}" db=${this.config.notionDatabaseId.slice(0,8)}... signalCount=${signals.length}`)
 
     try {
-      const body = {
-        parent: { database_id: this.config.notionDatabaseId },
-        properties: {
-          '名称': { title: [{ text: { content: title } }] },
-          '日期': { date: { start: dateStr } },
-          'Content': {
-            rich_text: [{ type: 'text', text: { content } }],
-          },
-        },
-      }
+      const props: Record<string, unknown> = {}
+      props[this.config.notionTitleProp] = { title: [{ text: { content: title } }] }
+      props[this.config.notionDateProp] = { date: { start: dateStr } }
+      props[this.config.notionContentProp] = { rich_text: [{ type: 'text', text: { content } }] }
 
       const res = await fetch('https://api.notion.com/v1/pages', {
         method: 'POST',
@@ -57,13 +48,16 @@ export class NotionReporter {
           'Content-Type': 'application/json',
           'Notion-Version': '2022-06-28',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          parent: { database_id: this.config.notionDatabaseId },
+          properties: props,
+        }),
       })
 
       const resText = await res.text()
 
       if (!res.ok) {
-        console.error(`[Notion] API ${res.status}: ${resText.slice(0, 300)}`)
+        console.error(`[Notion] API ${res.status}: ${resText.slice(0, 400)}`)
         return
       }
 
